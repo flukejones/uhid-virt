@@ -1,7 +1,6 @@
 use std::io;
 
-use arrayvec::{ArrayString, ArrayVec};
-use uhid_fs::{Bus, CreateParams, UHIDDevice};
+use uhid_virt::{Bus, CreateParams, UHIDDevice};
 
 const RDESC: [u8; 85] = [
     0x05, 0x01, /* USAGE_PAGE (Generic Desktop) */
@@ -51,12 +50,11 @@ const RDESC: [u8; 85] = [
 ];
 
 fn main() {
-    let mut rd_data = ArrayVec::new();
-    RDESC.iter().for_each(|x| rd_data.try_push(*x).unwrap());
+    let rd_data = RDESC.to_vec();
     let create_params = CreateParams {
-        name: ArrayString::from("test-uhid-device").unwrap(),
-        phys: ArrayString::from("").unwrap(),
-        uniq: ArrayString::from("").unwrap(),
+        name: "test-uhid-device".to_string(),
+        phys: "".to_string(),
+        uniq: "".to_string(),
         bus: Bus::USB,
         vendor: 0x15d9,
         product: 0x0a37,
@@ -65,19 +63,17 @@ fn main() {
         rd_data,
     };
 
-    let mut uhid_device = UHIDDevice::try_new(create_params).unwrap();
+    let mut uhid_device = UHIDDevice::create(create_params).unwrap();
 
     let button_flags = 0;
     let mouse_abs_hor = 20;
     let mouse_abs_ver = 0;
     let wheel = 0;
     let data: [u8; 5] = [1, button_flags, mouse_abs_hor, mouse_abs_ver, wheel];
-    let mut datavec = ArrayVec::new();
-    data.iter().for_each(|x| datavec.try_push(*x).unwrap());
 
     let mut input = String::new();
     loop {
         io::stdin().read_line(&mut input).unwrap();
-        uhid_device.send_input(datavec.clone()).unwrap();
+        uhid_device.write(&data).unwrap();
     }
 }
