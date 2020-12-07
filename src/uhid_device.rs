@@ -32,6 +32,23 @@ impl<T: Read + Write> UHIDDevice<T> {
         self.handle.write(&event)
     }
 
+    /// Write a SetReportReply, only use in reponse to a read SetReport event
+    pub fn write_set_report_reply(&mut self, id: u32, err: u16) -> io::Result<usize> {
+        let event: [u8; UHID_EVENT_SIZE] = InputEvent::SetReportReply { id, err }.into();
+        self.handle.write(&event)
+    }
+
+    /// Write a GetReportReply, only use in reponse to a read GetReport event
+    pub fn write_get_report_reply(
+        &mut self,
+        id: u32,
+        err: u16,
+        data: Vec<u8>,
+    ) -> io::Result<usize> {
+        let event: [u8; UHID_EVENT_SIZE] = InputEvent::GetReportReply { id, err, data }.into();
+        self.handle.write(&event)
+    }
+
     /// Reads a queued output event. No reaction is required to an output event, but you should handle them according to your needs.
     pub fn read(&mut self) -> Result<OutputEvent, StreamError> {
         let mut event = [0u8; UHID_EVENT_SIZE];
