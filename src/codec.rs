@@ -184,9 +184,10 @@ impl TryFrom<sys::uhid_event> for OutputEvent {
         if let Some(event_type) = to_uhid_event_type(event.type_) {
             match event_type {
                 sys::uhid_event_type_UHID_START => Ok(unsafe {
-                    let payload = &event.u.start;
+                    //let payload = &event.u.start;
+                    let dev_flags = event.u.start.dev_flags;
                     OutputEvent::Start {
-                        dev_flags: BitFlags::from_bits_truncate(payload.dev_flags)
+                        dev_flags: BitFlags::from_bits_truncate(dev_flags)
                             .iter()
                             .collect(),
                     }
