@@ -1,6 +1,6 @@
 [package]
 name = "uhid-virt"
-version = "0.0.5"
+version = "0.0.6"
 authors = ["Luke Jones <luke@ljones.dev>", "Sameer Puri <purisame@spuri.io>", "Daniel Stiner <danstiner@gmail.com>"]
 edition = "2021"
 description = "Interface to Linux UHID (user-space HID transport drivers)"
