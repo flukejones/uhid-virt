@@ -4,6 +4,7 @@ use std::slice;
 
 use enumflags2::BitFlags;
 
+use enumflags2::bitflags;
 use uhidrs_sys as sys;
 
 use crate::uhid_device::CreateParams;
@@ -18,7 +19,8 @@ pub enum StreamError {
 /// Each of these flags defines whether a given report-type uses numbered reports.
 /// If numbered reports are used for a type, all messages from the kernel already have the report-number as prefix. Otherwise, no prefix is added by the kernel.
 /// For messages sent by user-space to the kernel, you must adjust the prefixes according to these flags.
-#[derive(BitFlags, Copy, Clone, PartialEq)]
+#[bitflags]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(u64)]
 pub enum DevFlags {
     FeatureReportsNumbered = 0b0000_0001,
@@ -73,11 +75,11 @@ pub enum InputEvent<'a> {
     SetReportReply { id: u32, err: u16 },
 }
 
-impl<'a> Into<sys::uhid_event> for InputEvent<'a> {
-    fn into(self) -> sys::uhid_event {
+impl<'a> From<InputEvent<'a>> for sys::uhid_event {
+    fn from(input: InputEvent<'a>) -> Self {
         let mut event: sys::uhid_event = unsafe { mem::zeroed() };
 
-        match self {
+        match input {
             InputEvent::Create(CreateParams {
                 name,
                 phys,
@@ -89,7 +91,7 @@ impl<'a> Into<sys::uhid_event> for InputEvent<'a> {
                 country,
                 rd_data,
             }) => {
-                event.type_ = sys::uhid_event_type_UHID_CREATE2 as u32;
+                event.type_ = sys::uhid_event_type_UHID_CREATE2;
                 let payload = unsafe { &mut event.u.create2 };
                 name.as_bytes()
                     .iter()
@@ -115,10 +117,10 @@ impl<'a> Into<sys::uhid_event> for InputEvent<'a> {
                 payload.country = country;
             }
             InputEvent::Destroy => {
-                event.type_ = sys::uhid_event_type_UHID_DESTROY as u32;
+                event.type_ = sys::uhid_event_type_UHID_DESTROY;
             }
             InputEvent::Input { data } => {
-                event.type_ = sys::uhid_event_type_UHID_INPUT2 as u32;
+                event.type_ = sys::uhid_event_type_UHID_INPUT2;
                 let payload = unsafe { &mut event.u.input2 };
                 data.iter()
                     .enumerate()
@@ -126,7 +128,7 @@ impl<'a> Into<sys::uhid_event> for InputEvent<'a> {
                 payload.size = data.len() as u16;
             }
             InputEvent::GetReportReply { err, data, .. } => {
-                event.type_ = sys::uhid_event_type_UHID_GET_REPORT_REPLY as u32;
+                event.type_ = sys::uhid_event_type_UHID_GET_REPORT_REPLY;
                 let payload = unsafe { &mut event.u.get_report_reply };
                 payload.err = err;
                 data.iter()
@@ -135,7 +137,7 @@ impl<'a> Into<sys::uhid_event> for InputEvent<'a> {
                 payload.size = data.len() as u16;
             }
             InputEvent::SetReportReply { err, .. } => {
-                event.type_ = sys::uhid_event_type_UHID_SET_REPORT_REPLY as u32;
+                event.type_ = sys::uhid_event_type_UHID_SET_REPORT_REPLY;
                 let payload = unsafe { &mut event.u.set_report_reply };
                 payload.err = err;
             }
@@ -170,7 +172,7 @@ pub enum OutputEvent {
 }
 
 fn to_uhid_event_type(value: u32) -> Option<sys::uhid_event_type> {
-    let last_valid_value = sys::uhid_event_type_UHID_SET_REPORT_REPLY as u32;
+    let last_valid_value = sys::uhid_event_type_UHID_SET_REPORT_REPLY;
     if value <= last_valid_value {
         Some(value)
     } else {
@@ -243,9 +245,9 @@ impl TryFrom<[u8; UHID_EVENT_SIZE]> for OutputEvent {
     }
 }
 
-impl<'a> Into<[u8; UHID_EVENT_SIZE]> for InputEvent<'a> {
-    fn into(self) -> [u8; UHID_EVENT_SIZE] {
-        let event: sys::uhid_event = self.into();
+impl<'a> From<InputEvent<'a>> for [u8; UHID_EVENT_SIZE] {
+    fn from(input: InputEvent<'a>) -> Self {
+        let event: sys::uhid_event = input.into();
         unsafe { mem::transmute_copy(&event) }
     }
 }
