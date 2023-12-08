@@ -75,7 +75,7 @@ impl UHIDDevice<File> {
         options.read(true);
         options.write(true);
         if cfg!(unix) {
-            options.custom_flags(libc::O_RDWR | libc::O_CLOEXEC);
+            options.custom_flags(libc::O_RDWR | libc::O_CLOEXEC | libc::O_NONBLOCK);
         }
         let mut handle = options.open(path)?;
         let event: [u8; UHID_EVENT_SIZE] = InputEvent::Create(params).into();

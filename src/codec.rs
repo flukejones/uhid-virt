@@ -70,9 +70,40 @@ pub const UHID_EVENT_SIZE: usize = mem::size_of::<sys::uhid_event>();
 pub enum InputEvent<'a> {
     Create(CreateParams),
     Destroy,
-    Input { data: &'a [u8] },
-    GetReportReply { id: u32, err: u16, data: Vec<u8> },
-    SetReportReply { id: u32, err: u16 },
+    Input {
+        data: &'a [u8],
+    },
+    Output {
+        data: Vec<u8>,
+    },
+    OutputEv {
+        type_: u16,
+        code: u16,
+        value: i32,
+    },
+    GetReportReply {
+        id: u32,
+        err: u16,
+        data: Vec<u8>,
+    },
+    SetReportReply {
+        id: u32,
+        err: u16,
+    },
+    Feature {
+        id: u32,
+        report_num: u8,
+    },
+    FeatureAnswer {
+        id: u32,
+        err: u16,
+        data: Vec<u8>,
+    },
+    SetReport {
+        id: u32,
+        report_num: u8,
+        data: Vec<u8>,
+    },
 }
 
 impl<'a> From<InputEvent<'a>> for sys::uhid_event {
@@ -127,7 +158,23 @@ impl<'a> From<InputEvent<'a>> for sys::uhid_event {
                     .for_each(|(i, x)| payload.data[i] = *x);
                 payload.size = data.len() as u16;
             }
-            InputEvent::GetReportReply { err, data, .. } => {
+            InputEvent::Output { data } => {
+                event.type_ = sys::uhid_event_type_UHID_OUTPUT;
+                let payload = unsafe { &mut event.u.output };
+                data.iter()
+                    .enumerate()
+                    .for_each(|(i, x)| payload.data[i] = *x);
+                payload.size = data.len() as u16;
+                payload.rtype = sys::hid_report_type_HID_OUTPUT_REPORT as u8;
+            }
+            InputEvent::OutputEv { type_, code, value } => {
+                event.type_ = sys::uhid_event_type___UHID_LEGACY_OUTPUT_EV;
+                let payload = unsafe { &mut event.u.output_ev };
+                payload.type_ = type_;
+                payload.code = code;
+                payload.value = value;
+            }
+            InputEvent::GetReportReply { err, id, data, .. } => {
                 event.type_ = sys::uhid_event_type_UHID_GET_REPORT_REPLY;
                 let payload = unsafe { &mut event.u.get_report_reply };
                 payload.err = err;
@@ -135,11 +182,45 @@ impl<'a> From<InputEvent<'a>> for sys::uhid_event {
                     .enumerate()
                     .for_each(|(i, x)| payload.data[i] = *x);
                 payload.size = data.len() as u16;
+                payload.id = id;
             }
-            InputEvent::SetReportReply { err, .. } => {
+            InputEvent::SetReportReply { err, id, .. } => {
                 event.type_ = sys::uhid_event_type_UHID_SET_REPORT_REPLY;
                 let payload = unsafe { &mut event.u.set_report_reply };
                 payload.err = err;
+                payload.id = id;
+            }
+            InputEvent::Feature { id, report_num } => {
+                event.type_ = sys::uhid_legacy_event_type_UHID_FEATURE;
+                let payload = unsafe { &mut event.u.feature };
+                payload.id = id;
+                payload.rnum = report_num;
+                payload.rtype = sys::hid_report_type_HID_INPUT_REPORT as u8;
+            }
+            InputEvent::FeatureAnswer { err, id, data, .. } => {
+                event.type_ = sys::uhid_event_type_UHID_GET_REPORT_REPLY;
+                let payload = unsafe { &mut event.u.get_report_reply };
+                payload.err = err;
+                data.iter()
+                    .enumerate()
+                    .for_each(|(i, x)| payload.data[i] = *x);
+                payload.size = data.len() as u16;
+                payload.id = id;
+            }
+            InputEvent::SetReport {
+                id,
+                report_num,
+                data,
+            } => {
+                event.type_ = sys::uhid_event_type_UHID_SET_REPORT;
+                let payload = unsafe { &mut event.u.set_report };
+                data.iter()
+                    .enumerate()
+                    .for_each(|(i, x)| payload.data[i] = *x);
+                payload.size = data.len() as u16;
+                payload.id = id;
+                payload.rnum = report_num;
+                payload.rtype = sys::hid_report_type_HID_INPUT_REPORT as u8;
             }
         };
 
