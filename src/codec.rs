@@ -295,7 +295,7 @@ impl TryFrom<sys::uhid_event> for OutputEvent {
                     OutputEvent::GetReport {
                         id: payload.id,
                         report_number: payload.rnum,
-                        report_type: mem::transmute(payload.rtype),
+                        report_type: mem::transmute::<u8, ReportType>(payload.rtype),
                     }
                 }),
                 sys::uhid_event_type_UHID_SET_REPORT => Ok(unsafe {
@@ -303,7 +303,7 @@ impl TryFrom<sys::uhid_event> for OutputEvent {
                     OutputEvent::SetReport {
                         id: payload.id,
                         report_number: payload.rnum,
-                        report_type: mem::transmute(payload.rtype),
+                        report_type: mem::transmute::<u8, ReportType>(payload.rtype),
                         data: slice::from_raw_parts(
                             &payload.data[0] as *const u8,
                             payload.size as usize,
