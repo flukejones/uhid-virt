@@ -165,7 +165,7 @@ impl<'a> From<InputEvent<'a>> for sys::uhid_event {
                     .enumerate()
                     .for_each(|(i, x)| payload.data[i] = *x);
                 payload.size = data.len() as u16;
-                payload.rtype = sys::hid_report_type_HID_OUTPUT_REPORT as u8;
+                payload.rtype = sys::uhid_report_type_UHID_OUTPUT_REPORT as u8;
             }
             InputEvent::OutputEv { type_, code, value } => {
                 event.type_ = sys::uhid_event_type___UHID_LEGACY_OUTPUT_EV;
@@ -195,7 +195,7 @@ impl<'a> From<InputEvent<'a>> for sys::uhid_event {
                 let payload = unsafe { &mut event.u.feature };
                 payload.id = id;
                 payload.rnum = report_num;
-                payload.rtype = sys::hid_report_type_HID_INPUT_REPORT as u8;
+                payload.rtype = sys::uhid_report_type_UHID_INPUT_REPORT as u8;
             }
             InputEvent::FeatureAnswer { err, id, data, .. } => {
                 event.type_ = sys::uhid_event_type_UHID_GET_REPORT_REPLY;
@@ -220,7 +220,7 @@ impl<'a> From<InputEvent<'a>> for sys::uhid_event {
                 payload.size = data.len() as u16;
                 payload.id = id;
                 payload.rnum = report_num;
-                payload.rtype = sys::hid_report_type_HID_INPUT_REPORT as u8;
+                payload.rtype = sys::uhid_report_type_UHID_INPUT_REPORT as u8;
             }
         };
 
