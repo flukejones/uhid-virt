@@ -33,7 +33,7 @@ impl<T: Read + Write> UHIDDevice<T> {
 
     pub fn write_transformed<F>(&mut self, data: &[u8], fun: F) -> io::Result<usize>
     where
-        F: Fn(&mut [u8]) -> (),
+        F: Fn(&mut [u8]),
     {
         let mut event: [u8; UHID_EVENT_SIZE] = InputEvent::Input { data }.into();
         fun(&mut event);
@@ -65,7 +65,7 @@ impl<T: Read + Write> UHIDDevice<T> {
         fun: F,
     ) -> io::Result<usize>
     where
-        F: Fn(&mut [u8]) -> (),
+        F: Fn(&mut [u8]),
     {
         let mut event: [u8; UHID_EVENT_SIZE] = InputEvent::GetReportReply { id, err, data }.into();
         fun(&mut event);
