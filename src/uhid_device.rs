@@ -28,7 +28,15 @@ pub struct CreateParams {
 impl<T: Read + Write> UHIDDevice<T> {
     /// The data parameter should contain a data-payload. This is the raw data that you read from your device. The kernel will parse the HID reports.
     pub fn write(&mut self, data: &[u8]) -> io::Result<usize> {
-        let event: [u8; UHID_EVENT_SIZE] = InputEvent::Input { data }.into();
+        self.write_transformed(data, |_: &mut [u8]| {})
+    }
+
+    pub fn write_transformed<F>(&mut self, data: &[u8], fun: F) -> io::Result<usize>
+    where
+        F: Fn(&mut [u8]) -> (),
+    {
+        let mut event: [u8; UHID_EVENT_SIZE] = InputEvent::Input { data }.into();
+        fun(&mut event);
         self.handle.write(&event)
     }
 
@@ -49,16 +57,16 @@ impl<T: Read + Write> UHIDDevice<T> {
     }
 
     /// Write a GetReportReply, only use in reponse to a read GetReport event
-    pub fn write_transformed_get_report_reply<F>
-    (
+    pub fn write_transformed_get_report_reply<F>(
         &mut self,
         id: u32,
         err: u16,
         data: Vec<u8>,
-        fun: F
-    )  -> io::Result<usize>
+        fun: F,
+    ) -> io::Result<usize>
     where
-        F: Fn(&mut [u8]) -> (){
+        F: Fn(&mut [u8]) -> (),
+    {
         let mut event: [u8; UHID_EVENT_SIZE] = InputEvent::GetReportReply { id, err, data }.into();
         fun(&mut event);
         self.handle.write(&event)
