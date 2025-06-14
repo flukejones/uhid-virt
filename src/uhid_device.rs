@@ -45,7 +45,22 @@ impl<T: Read + Write> UHIDDevice<T> {
         err: u16,
         data: Vec<u8>,
     ) -> io::Result<usize> {
-        let event: [u8; UHID_EVENT_SIZE] = InputEvent::GetReportReply { id, err, data }.into();
+        self.write_transformed_get_report_reply(id, err, data, |_| {})
+    }
+
+    /// Write a GetReportReply, only use in reponse to a read GetReport event
+    pub fn write_transformed_get_report_reply<F>
+    (
+        &mut self,
+        id: u32,
+        err: u16,
+        data: Vec<u8>,
+        fun: F
+    )  -> io::Result<usize>
+    where
+        F: Fn(&mut [u8]) -> (){
+        let mut event: [u8; UHID_EVENT_SIZE] = InputEvent::GetReportReply { id, err, data }.into();
+        fun(&mut event);
         self.handle.write(&event)
     }
 
