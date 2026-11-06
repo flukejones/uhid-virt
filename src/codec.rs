@@ -1,6 +1,5 @@
 use std::convert::TryFrom;
 use std::mem;
-use std::slice;
 
 use enumflags2::BitFlags;
 
@@ -10,6 +9,7 @@ use uhidrs_sys as sys;
 use crate::uhid_device::CreateParams;
 
 /// Any IO error will probably be 'permission-denied' if you don't have access to open /dev/uhid
+/// Malformed event payloads are reported as IO errors with `InvalidData`.
 /// An unknown event type error should only occur if a new event has been added to `uhid-sys` that this wrapper is unaware of.
 pub enum StreamError {
     Io(std::io::Error),
@@ -34,6 +34,32 @@ pub enum ReportType {
     Feature = 0,
     Output = 1,
     Input = 2,
+}
+
+impl TryFrom<u8> for ReportType {
+    type Error = StreamError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Feature),
+            1 => Ok(Self::Output),
+            2 => Ok(Self::Input),
+            _ => Err(invalid_data("invalid UHID report type")),
+        }
+    }
+}
+
+fn invalid_data(message: &'static str) -> StreamError {
+    StreamError::Io(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        message,
+    ))
+}
+
+fn report_data(data: &[u8], size: u16) -> Result<Vec<u8>, StreamError> {
+    data.get(..usize::from(size))
+        .map(<[u8]>::to_vec)
+        .ok_or_else(|| invalid_data("UHID report size exceeds data capacity"))
 }
 
 /// See https://elixir.bootlin.com/linux/latest/ident/BUS_INTEL_ISHTP
@@ -278,16 +304,11 @@ impl TryFrom<sys::uhid_event> for OutputEvent {
                 sys::uhid_event_type_UHID_CLOSE => Ok(OutputEvent::Close),
                 sys::uhid_event_type_UHID_OUTPUT => Ok(unsafe {
                     let payload = &event.u.output;
-                    assert_eq!(
-                        payload.rtype,
-                        sys::uhid_report_type_UHID_OUTPUT_REPORT as u8
-                    );
+                    if payload.rtype != sys::uhid_report_type_UHID_OUTPUT_REPORT as u8 {
+                        return Err(invalid_data("invalid UHID output report type"));
+                    }
                     OutputEvent::Output {
-                        data: slice::from_raw_parts(
-                            &payload.data[0] as *const u8,
-                            payload.size as usize,
-                        )
-                        .to_vec(),
+                        data: report_data(&payload.data, payload.size)?,
                     }
                 }),
                 sys::uhid_event_type_UHID_GET_REPORT => Ok(unsafe {
@@ -295,7 +316,7 @@ impl TryFrom<sys::uhid_event> for OutputEvent {
                     OutputEvent::GetReport {
                         id: payload.id,
                         report_number: payload.rnum,
-                        report_type: mem::transmute::<u8, ReportType>(payload.rtype),
+                        report_type: ReportType::try_from(payload.rtype)?,
                     }
                 }),
                 sys::uhid_event_type_UHID_SET_REPORT => Ok(unsafe {
@@ -303,12 +324,8 @@ impl TryFrom<sys::uhid_event> for OutputEvent {
                     OutputEvent::SetReport {
                         id: payload.id,
                         report_number: payload.rnum,
-                        report_type: mem::transmute::<u8, ReportType>(payload.rtype),
-                        data: slice::from_raw_parts(
-                            &payload.data[0] as *const u8,
-                            payload.size as usize,
-                        )
-                        .to_vec(),
+                        report_type: ReportType::try_from(payload.rtype)?,
+                        data: report_data(&payload.data, payload.size)?,
                     }
                 }),
                 _ => Err(StreamError::UnknownEventType(event.type_)),
@@ -322,7 +339,12 @@ impl TryFrom<sys::uhid_event> for OutputEvent {
 impl TryFrom<[u8; UHID_EVENT_SIZE]> for OutputEvent {
     type Error = StreamError;
     fn try_from(src: [u8; UHID_EVENT_SIZE]) -> Result<Self, Self::Error> {
-        OutputEvent::try_from(unsafe { *(src.as_ptr() as *const sys::uhid_event) })
+        // The byte array does not promise the alignment of the FFI event type.
+        // The raw bindings have no enum or reference validity constraints.
+        // The selected output payload is validated before constructing Rust enums
+        // or using its report length; legacy pointer fields are never dereferenced.
+        let event = unsafe { std::ptr::read_unaligned(src.as_ptr().cast::<sys::uhid_event>()) };
+        OutputEvent::try_from(event)
     }
 }
 
@@ -336,6 +358,124 @@ impl<'a> From<InputEvent<'a>> for [u8; UHID_EVENT_SIZE] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_invalid_data(result: Result<OutputEvent, StreamError>) {
+        assert!(matches!(result, Err(StreamError::Io(error))
+            if error.kind() == std::io::ErrorKind::InvalidData));
+    }
+
+    #[test]
+    fn decode_report_types() {
+        for rtype in 0..=u8::MAX {
+            for event_type in [
+                sys::uhid_event_type_UHID_GET_REPORT,
+                sys::uhid_event_type_UHID_SET_REPORT,
+            ] {
+                let mut event: sys::uhid_event = unsafe { mem::zeroed() };
+                event.type_ = event_type;
+                // GET_REPORT and SET_REPORT share these initial fields.
+                event.u.set_report.id = 42;
+                event.u.set_report.rnum = 7;
+                event.u.set_report.rtype = rtype;
+                let decoded = OutputEvent::try_from(event);
+                if rtype > 2 {
+                    assert_invalid_data(decoded);
+                    continue;
+                }
+                let (id, report_number, report_type) = match decoded {
+                    Ok(OutputEvent::GetReport {
+                        id,
+                        report_number,
+                        report_type,
+                    }) => (id, report_number, report_type),
+                    Ok(OutputEvent::SetReport {
+                        id,
+                        report_number,
+                        report_type,
+                        data,
+                    }) => {
+                        assert!(data.is_empty());
+                        (id, report_number, report_type)
+                    }
+                    _ => panic!("valid report type rejected"),
+                };
+                assert_eq!(id, 42);
+                assert_eq!(report_number, 7);
+                assert_eq!(
+                    report_type,
+                    [ReportType::Feature, ReportType::Output, ReportType::Input][rtype as usize]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn decode_output_report_types() {
+        for rtype in 0..=u8::MAX {
+            let mut event: sys::uhid_event = unsafe { mem::zeroed() };
+            event.type_ = sys::uhid_event_type_UHID_OUTPUT;
+            event.u.output.rtype = rtype;
+            let decoded = OutputEvent::try_from(event);
+            if rtype == sys::uhid_report_type_UHID_OUTPUT_REPORT as u8 {
+                assert!(matches!(decoded, Ok(OutputEvent::Output { data }) if data.is_empty()));
+            } else {
+                assert_invalid_data(decoded);
+            }
+        }
+    }
+
+    #[test]
+    fn decode_report_size_boundaries() {
+        for event_type in [
+            sys::uhid_event_type_UHID_OUTPUT,
+            sys::uhid_event_type_UHID_SET_REPORT,
+        ] {
+            for size in [
+                0,
+                1,
+                sys::UHID_DATA_MAX as u16,
+                sys::UHID_DATA_MAX as u16 + 1,
+                u16::MAX,
+            ] {
+                let mut event: sys::uhid_event = unsafe { mem::zeroed() };
+                event.type_ = event_type;
+                if event_type == sys::uhid_event_type_UHID_OUTPUT {
+                    event.u.output.rtype = sys::uhid_report_type_UHID_OUTPUT_REPORT as u8;
+                    event.u.output.size = size;
+                    event.u.output.data = [0xa5; sys::UHID_DATA_MAX as usize];
+                } else {
+                    event.u.set_report.rtype = 0;
+                    event.u.set_report.size = size;
+                    event.u.set_report.data = [0xa5; sys::UHID_DATA_MAX as usize];
+                }
+                // Exercise the public byte-array decoder as well as the FFI decoder.
+                let bytes: [u8; UHID_EVENT_SIZE] = unsafe { mem::transmute_copy(&event) };
+                for decoded in [OutputEvent::try_from(event), OutputEvent::try_from(bytes)] {
+                    if usize::from(size) > sys::UHID_DATA_MAX as usize {
+                        assert_invalid_data(decoded);
+                    } else {
+                        match decoded {
+                            Ok(OutputEvent::Output { data })
+                            | Ok(OutputEvent::SetReport { data, .. }) => {
+                                assert_eq!(data, vec![0xa5; usize::from(size)])
+                            }
+                            _ => panic!("valid report size rejected"),
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn decode_unknown_event_type() {
+        let mut bytes = [0; UHID_EVENT_SIZE];
+        bytes[..4].copy_from_slice(&u32::MAX.to_ne_bytes());
+        assert!(matches!(
+            OutputEvent::try_from(bytes),
+            Err(StreamError::UnknownEventType(u32::MAX))
+        ));
+    }
 
     const RDESC: [u8; 85] = [
         0x05, 0x01, /* USAGE_PAGE (Generic Desktop) */
